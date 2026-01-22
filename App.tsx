@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Activity, BarChart2, MessageSquareText, Home, Trophy, Calendar, Flame, Zap, Timer, Sun, Moon, Sunrise, Check, Layers, ArrowDownUp } from 'lucide-react';
 import ExerciseSession from './components/ExerciseSession';
 import HistoryChart from './components/HistoryChart';
+import PWAInstallPrompt from './components/PWAInstallPrompt';
 import { AppView, DifficultyLevel, WorkoutLog } from './types';
 
 // Constants: 3 Master Level Daily Routines
@@ -347,6 +348,9 @@ const App: React.FC = () => {
           </button>
         </nav>
       )}
+
+      {/* PWA Install Prompt */}
+      <PWAInstallPrompt />
     </div>
   );
 };
