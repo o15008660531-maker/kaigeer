@@ -36,13 +36,13 @@ const LEVELS: DifficultyLevel[] = [
   { 
     id: 'titan_evening', 
     name: '晚间 · 深度重塑', 
-    description: '专注于筋膜层面的深度延展。通过超长静态保持与大幅度反向凯格尔，重塑肌肉弹性。', 
+    description: '专注于深层肌纤维的静态耐力与呼吸冥想。无反向动作，纯粹的控制力训练。', 
     color: 'bg-indigo-600',
     phases: [
       { name: '静态负重 (45秒)', type: 'endurance', contractDuration: 45, relaxDuration: 20, reps: 4 }, // 260s - Expert only
-      { name: '深度反向', type: 'reverse', contractDuration: 8, relaxDuration: 8, reps: 15 }, // 240s
+      { name: '深度放松', type: 'standard', contractDuration: 0.1, relaxDuration: 15, reps: 10 }, // Deep relax focus (Contract is miniscule just to trigger relax)
       { name: '三步慢离心', type: 'steps_3', contractDuration: 4, relaxDuration: 8, reps: 8 }, // 160s (12s contract)
-      { name: '极限松解', type: 'reverse', contractDuration: 10, relaxDuration: 10, reps: 10 }, // 200s
+      { name: '调息放松', type: 'standard', contractDuration: 2, relaxDuration: 10, reps: 10 }, // 120s
       { name: '呼吸冥想', type: 'standard', contractDuration: 4, relaxDuration: 6, reps: 10 } // 100s
     ]
   }
@@ -95,7 +95,6 @@ const App: React.FC = () => {
         let contractTime = phase.contractDuration;
         if (phase.type === 'steps_3') contractTime *= 3;
         if (phase.type === 'steps_5') contractTime *= 5;
-        // Reverse phases behave like standard duration-wise
         return acc + (phase.reps * (contractTime + phase.relaxDuration));
     }, 0);
   };
@@ -132,7 +131,6 @@ const App: React.FC = () => {
           case 'endurance': return <Timer size={10} />;
           case 'steps_3': return <Layers size={10} />;
           case 'steps_5': return <Layers size={10} />;
-          case 'reverse': return <ArrowDownUp size={10} />;
           default: return <Activity size={10} />;
       }
   };
@@ -311,8 +309,8 @@ const App: React.FC = () => {
                     <div>
                         <h4 className="font-semibold text-indigo-900 text-sm">专家知识</h4>
                         <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-                            <span className="font-bold">高强度训练提示：</span> 
-                            大师级训练强度较大，如果您在长收缩期间感到肌肉颤抖，这是正常的力竭表现。请务必重视<span className="font-bold">反向凯格尔</span>的放松环节。
+                            <span className="font-bold">盲练提示：</span> 
+                            已开启全语音导航。请跟随语音指令进行训练，无需时刻盯着屏幕，专注于肌肉的精细控制。
                         </p>
                     </div>
                 </div>

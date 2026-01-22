@@ -23,6 +23,9 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
   
   const timerRef = useRef<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  
+  // Track the last announced step to avoid repeating it
+  const lastAnnouncedStepRef = useRef<number>(0);
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -30,6 +33,11 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
       timerRef.current = null;
     }
   };
+
+  const speak = useCallback((text: string) => {
+      if (!soundEnabled) return;
+      audioService.speak(text);
+  }, [soundEnabled]);
 
   const playSound = useCallback((type: 'start' | 'contract' | 'relax' | 'finish' | 'phase_change' | 'step' | 'rest') => {
     if (!soundEnabled) return;
@@ -48,7 +56,7 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
       case 'finish': audioService.playFinish(); break;
       case 'phase_change': audioService.playStart(); break;
       case 'rest': audioService.playRelax(); break;
-      case 'step': audioService.playTone(400, 0.1, 'sine'); break;
+      case 'step': audioService.playStep(); break;
     }
   }, [soundEnabled]);
 
@@ -56,12 +64,28 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
     setState(ExerciseState.GET_READY);
     setTimer(3);
     playSound('start');
+    speak("准备开始");
   };
 
   const getContractTotalDuration = (phase: ExercisePhase) => {
     if (phase.type === 'steps_3') return phase.contractDuration * 3;
     if (phase.type === 'steps_5') return phase.contractDuration * 5;
     return phase.contractDuration;
+  };
+
+  // Helper to calculate step info based on current timer
+  const calculateStepInfo = (phase: ExercisePhase, currentTimer: number) => {
+      if (phase.type !== 'steps_3' && phase.type !== 'steps_5') return null;
+      
+      const totalSteps = phase.type === 'steps_3' ? 3 : 5;
+      const totalDuration = phase.contractDuration * totalSteps;
+      const elapsedInPhase = totalDuration - currentTimer;
+      // Calculate current step (1-based), ensuring it doesn't exceed totalSteps
+      // Adding a small epsilon to avoid flickering at exact boundaries
+      const rawStep = Math.floor((elapsedInPhase + 0.05) / phase.contractDuration) + 1;
+      const step = Math.min(totalSteps, Math.max(1, rawStep));
+      
+      return { step, total: totalSteps };
   };
 
   // Main Timer Loop
@@ -87,6 +111,27 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
     return () => clearTimer();
   }, [state, isPaused]);
 
+  // Step Voice Announcer
+  useEffect(() => {
+     if (state !== ExerciseState.CONTRACT) {
+         lastAnnouncedStepRef.current = 0;
+         return;
+     }
+
+     const stepInfo = calculateStepInfo(currentPhase, timer);
+     if (stepInfo) {
+         if (stepInfo.step !== lastAnnouncedStepRef.current) {
+             lastAnnouncedStepRef.current = stepInfo.step;
+             playSound('step');
+             if (stepInfo.step === stepInfo.total) {
+                 speak(`${stepInfo.step}阶，保持住`);
+             } else {
+                 speak(`${stepInfo.step}阶`);
+             }
+         }
+     }
+  }, [timer, state, currentPhase, playSound, speak]);
+
   // State Transition Logic
   useEffect(() => {
     if (timer > 0.1) return; // Wait for timer to finish
@@ -96,11 +141,16 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
       setState(ExerciseState.CONTRACT);
       setTimer(getContractTotalDuration(currentPhase));
       playSound('contract');
+      if (currentPhase.type === 'explosive') speak("用力");
+      else if (currentPhase.type === 'endurance') speak("收缩保持");
+      else if (currentPhase.type === 'standard') speak("收缩");
+      // Note: Steps are handled by the separate effect above
     } 
     else if (state === ExerciseState.CONTRACT) {
       setState(ExerciseState.RELAX);
       setTimer(currentPhase.relaxDuration);
       playSound('relax');
+      speak("放松");
     } 
     else if (state === ExerciseState.RELAX) {
       if (currentRep < currentPhase.reps) {
@@ -109,6 +159,12 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
         setState(ExerciseState.CONTRACT);
         setTimer(getContractTotalDuration(currentPhase));
         playSound('contract');
+        
+        // Voice for next rep (simplified for high frequency)
+        if (currentPhase.type !== 'explosive') { // Don't speak on every fast twitch
+             if (currentPhase.type === 'standard') speak("收缩");
+             else if (currentPhase.type === 'endurance') speak("保持");
+        }
       } else {
         // Phase Complete
         if (phaseIndex < level.phases.length - 1) {
@@ -116,6 +172,8 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
            setState(ExerciseState.PHASE_REST);
            setTimer(5); // 5 seconds rest between phases
            playSound('rest');
+           const nextPhaseName = level.phases[phaseIndex + 1].name;
+           speak(`休息5秒。准备：${nextPhaseName}`);
         } else {
            // All Phases Complete
            setState(ExerciseState.FINISHED);
@@ -134,48 +192,27 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
         setState(ExerciseState.CONTRACT);
         setTimer(getContractTotalDuration(nextPhase));
         playSound('phase_change');
+        
+        if (nextPhase.type === 'steps_3') speak("三阶收缩，开始");
+        else if (nextPhase.type === 'steps_5') speak("五阶收缩，开始");
+        else speak("开始");
     }
-  }, [timer, state, currentRep, phaseIndex, level, playSound, currentPhase]);
+  }, [timer, state, currentRep, phaseIndex, level, playSound, speak, currentPhase]);
 
   // Clean up on unmount
   useEffect(() => {
     return () => clearTimer();
   }, []);
 
-  // Stepped Visual Logic
-  const getCurrentStepInfo = () => {
-    if (state !== ExerciseState.CONTRACT) return null;
-    
-    if (currentPhase.type === 'steps_3') {
-        const totalDuration = currentPhase.contractDuration * 3;
-        const elapsedInPhase = totalDuration - timer;
-        const step = Math.min(3, Math.floor(elapsedInPhase / currentPhase.contractDuration) + 1);
-        return { step, total: 3 };
-    }
-    if (currentPhase.type === 'steps_5') {
-        const totalDuration = currentPhase.contractDuration * 5;
-        const elapsedInPhase = totalDuration - timer;
-        const step = Math.min(5, Math.floor(elapsedInPhase / currentPhase.contractDuration) + 1);
-        return { step, total: 5 };
-    }
-    return null;
-  };
-
+  // Visual Logic
   const getCircleScale = () => {
     if (state === ExerciseState.IDLE) return 1;
     if (state === ExerciseState.GET_READY) return 1;
     if (state === ExerciseState.PHASE_REST) return 1;
     
     if (state === ExerciseState.CONTRACT) {
-        if (currentPhase.type === 'reverse') {
-            // Reverse expands OUTWARDS
-            const duration = currentPhase.contractDuration;
-            const progress = 1 - (timer / duration);
-            return 1 + (progress * 0.25); // Expands to 1.25x
-        }
-
         if (currentPhase.type === 'steps_3' || currentPhase.type === 'steps_5') {
-            const info = getCurrentStepInfo();
+            const info = calculateStepInfo(currentPhase, timer);
             if (info) {
                 // Stepped scale: 1 -> 0.6
                 // Map step 1..Max to 0.9..0.6
@@ -192,11 +229,6 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
     }
 
     if (state === ExerciseState.RELAX) {
-      if (currentPhase.type === 'reverse') {
-          // Relax from expansion (1.25 -> 1)
-          const progress = 1 - (timer / currentPhase.relaxDuration);
-          return 1.25 - (progress * 0.25);
-      }
       const progress = 1 - (timer / currentPhase.relaxDuration);
       return Math.min(1, 0.6 + (progress * 0.4));
     }
@@ -209,14 +241,12 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
       case ExerciseState.GET_READY: return "准备...";
       case ExerciseState.PHASE_REST: return "休息一下";
       case ExerciseState.CONTRACT: 
-        const stepInfo = getCurrentStepInfo();
+        const stepInfo = calculateStepInfo(currentPhase, timer);
         if (stepInfo) return `第 ${stepInfo.step} 阶收紧`;
-        if (currentPhase.type === 'reverse') return "轻微外推 (反向)";
         if (currentPhase.type === 'explosive') return "爆发收缩!";
         if (currentPhase.type === 'endurance') return "保持收缩";
         return "收缩 (提肛)";
       case ExerciseState.RELAX: 
-        if (currentPhase.type === 'reverse') return "复位";
         return "放松";
       case ExerciseState.FINISHED: return "训练完成!";
       default: return "";
@@ -227,7 +257,6 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
     switch (state) {
       case ExerciseState.PHASE_REST: return "bg-sky-200 text-sky-700 shadow-[0_0_20px_rgba(186,230,253,0.5)]";
       case ExerciseState.CONTRACT:
-        if (currentPhase.type === 'reverse') return "bg-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.6)]";
         if (currentPhase.type === 'explosive') return "bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.6)]";
         if (currentPhase.type === 'steps_3') return "bg-indigo-600 shadow-[0_0_30px_rgba(79,70,229,0.6)]";
         if (currentPhase.type === 'steps_5') return "bg-violet-700 shadow-[0_0_30px_rgba(109,40,217,0.6)]";
@@ -244,7 +273,7 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
         <h2 className="text-3xl font-bold text-slate-800">太棒了!</h2>
         <p className="text-slate-600 text-center max-w-xs">
           你完成了 {level.name}。<br/>
-          超越自我，才是宗师。
+          大师级表现。
         </p>
         <button
           onClick={() => onComplete(elapsedTime)}
@@ -308,11 +337,10 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ level, onComplete, on
              </p>
            ) : (
              <p className="text-slate-400 mt-2 text-sm">
-                 {currentPhase.type === 'steps_3' && '像坐电梯一样，分三层收紧'}
-                 {currentPhase.type === 'steps_5' && '精细控制，每一层都要稳住'}
+                 {currentPhase.type === 'steps_3' && '跟随语音：分三层逐级收紧'}
+                 {currentPhase.type === 'steps_5' && '跟随语音：精细控制每一层'}
                  {currentPhase.type === 'explosive' && '用力收缩，立刻放松'}
                  {currentPhase.type === 'endurance' && '保持住，不要松懈'}
-                 {currentPhase.type === 'reverse' && '像排气一样轻微向外用力，完全放松盆底'}
                  {currentPhase.type === 'standard' && '标准收缩'}
              </p>
            )}

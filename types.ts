@@ -13,7 +13,7 @@ export enum ExerciseState {
   FINISHED = 'FINISHED'
 }
 
-export type PhaseType = 'standard' | 'explosive' | 'endurance' | 'steps_3' | 'steps_5' | 'reverse';
+export type PhaseType = 'standard' | 'explosive' | 'endurance' | 'steps_3' | 'steps_5';
 
 export interface ExercisePhase {
   name: string;
